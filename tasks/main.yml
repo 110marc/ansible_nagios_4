@@ -1,0 +1,127 @@
+---
+# tasks file for ansible_nagios_4
+- name: install required packages
+  apt:
+    pkg:
+      - wget
+      - build-essential
+      - unzip
+      - openssl
+      - libssl-dev
+      - apache2
+      - php
+      - libapache2-mod-php
+      - php-gd
+      - libgd-dev
+      - rsync
+      - python-passlib
+
+- group:
+    name: "{{ nagios_group }}"
+    state: present
+
+- name: add nagios user
+  user:
+    name: "{{ nagios_user }}"
+
+- name: append nagios group to nagios and www-data
+  user:
+    name: "{{ item }}"
+    groups: "{{ nagios_group }}"
+    append: yes
+  with_items:
+    - "{{ nagios_user }}" 
+    - www-data
+
+- name: download nagios core
+  get_url:
+    url: https://assets.nagios.com/downloads/nagioscore/releases/nagios-{{ nagios_version }}.tar.gz
+    dest: /tmp/nagios-{{ nagios_version }}.tar.gz
+    mode: 0644
+
+- name: extract nagios core
+  unarchive:
+    src: /tmp/nagios-{{ nagios_version }}.tar.gz
+    dest: /tmp/
+    remote_src: yes
+
+- name: configure nagios
+  command: ./configure --with-command-group={{ nagios_group }}
+  args:
+    chdir: /tmp/nagios-{{ nagios_version }}
+
+- name: make and nagios
+  make:
+    chdir: /tmp/nagios-{{ nagios_version }}
+    target: "{{ item }}"
+  with_items:
+    - all
+    - install
+    - install-init
+    - install-daemoninit
+    - install-config
+    - install-commandmode
+    - install-exfoliation
+
+- name: copy nagios eventhandlers
+  synchronize:
+    src: /tmp/nagios-{{ nagios_version }}/contrib/eventhandlers/
+    dest: /usr/local/nagios/libexec/eventhandlers/
+    recursive: yes
+  delegate_to: "{{ inventory_hostname }}"
+
+- name: set eventhandlers permissions
+  file:
+    dest: /usr/local/nagios/libexec/eventhandlers/
+    owner: "{{ nagios_user }}"
+    group: "{{ nagios_group }}"
+    recurse: yes
+
+- name: copy apache configuration file
+  copy:
+    src: files/nagios.conf
+    dest: /etc/apache2/conf-available/nagios.conf
+
+- name: set htpasswd
+  htpasswd:
+    path: /usr/local/nagios/etc/htpasswd.users
+    name: "{{ htpasswd_user }}"
+    password: "{{ htpasswd_pass }}"
+    crypt_scheme: md5_crypt
+
+- name: apache configuration
+  shell: a2enconf nagios && a2enmod cgi rewrite
+
+- name: restart apache
+  service:
+    name: apache2
+    state: restarted
+    enabled: yes
+
+- name: install nagios plugins
+  unarchive:
+    src: http://www.nagios-plugins.org/download/nagios-plugins-{{ nagios_plugins_version }}.tar.gz
+    dest: /opt/
+    remote_src: yes
+
+- name: configure nagios plugins
+  shell: ./configure --with-nagios-user={{ nagios_user }} --with-nagios-group={{ nagios_group }} --with-openssl
+  args:
+    chdir: /opt/nagios-plugins-{{ nagios_plugins_version }}
+
+- name: make and install nagios plugins
+  make:
+    chdir: /opt/nagios-plugins-{{ nagios_plugins_version }}
+    target: "{{ item }}"
+  with_items:
+    - all 
+    - install
+
+- name: verify nagios configuration
+  shell: /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg
+
+- name: reload nagios service
+  service:
+    name: nagios
+    state: restarted
+    enabled: yes
