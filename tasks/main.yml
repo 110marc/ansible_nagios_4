@@ -33,15 +33,9 @@
     - "{{ nagios_user }}" 
     - www-data
 
-- name: download nagios core
-  get_url:
-    url: https://assets.nagios.com/downloads/nagioscore/releases/nagios-{{ nagios_version }}.tar.gz
-    dest: /tmp/nagios-{{ nagios_version }}.tar.gz
-    mode: 0644
-
-- name: extract nagios core
+- name: download and extract nagios core
   unarchive:
-    src: /tmp/nagios-{{ nagios_version }}.tar.gz
+    src: https://assets.nagios.com/downloads/nagioscore/releases/nagios-{{ nagios_version }}.tar.gz
     dest: /tmp/
     remote_src: yes
 
